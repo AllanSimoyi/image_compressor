@@ -4,9 +4,9 @@ import React, { Suspense } from "react";
 // import ImageCompressor from "../components/ImageCompressor";
 import dynamic from 'next/dynamic';
 
-const ImageCompressor = dynamic( () => import( '../components/ImageCompressor' ), {
+const ImageCompressor = dynamic(() => import('../components/ImageCompressor'), {
   ssr: false,
-} );
+});
 
 export default function Index () {
   return (
@@ -20,7 +20,7 @@ export default function Index () {
         />
         <link rel="apple-touch-icon" href="logo192.png" />
       </Head>
-      <Suspense fallback={ `Loading...` }>
+      <Suspense fallback={`Loading...`}>
         <ImageCompressor />
       </Suspense>
     </>
