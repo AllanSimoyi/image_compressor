@@ -1,19 +1,42 @@
-import React from "react";
+import React, { useCallback } from "react";
 import imageCompression from "browser-image-compression";
 import Card from "react-bootstrap/Card";
+import Spinner from 'react-bootstrap/Spinner';
+import S3 from "react-aws-s3";
+import { getImageUrlWithFallback } from "../lib/image-rendering";
+
+const PLACEHOLDER_IMAGE_URL = "http://navparivartan.in/wp-content/uploads/2018/11/placeholder.png";
 
 export default function ImageCompressor () {
-  const [state, setState] = React.useState({
-    compressedLink: "http://navparivartan.in/wp-content/uploads/2018/11/placeholder.png",
-    originalImage: undefined,
-  });
+  const [originalImage, setOriginalImage] = React.useState(undefined);
+  const [compressedImage, setCompressedImage] = React.useState(undefined);
+  const [isUploading, setIsUploading] = React.useState(false);
 
   const handleFileChange = React.useCallback((event) => {
-    const imageFile = event.target.files[0];
-    setState((prevState) => ({
-      ...prevState,
-      originalImage: imageFile,
-    }));
+    setOriginalImage(event.target.files[0]);
+  }, []);
+
+  const uploadToS3 = useCallback(async (compressedImage) => {
+    try {
+      setIsUploading(true);
+      // await new Promise((resolve) => setTimeout(() => resolve(), 4000));
+      const config = {
+        bucketName: process.env.NEXT_PUBLIC_BUCKET_NAME,
+        region: process.env.NEXT_PUBLIC_REGION,
+        accessKeyId: process.env.NEXT_PUBLIC_ACCESS_ID,
+        secretAccessKey: process.env.NEXT_PUBLIC_ACCESS_KEY,
+      };
+      const s3Client = new S3(config);
+      const data = await s3Client.uploadFile(compressedImage, compressedImage.name);
+      if (data.status !== 204) {
+        throw new Error("Failed to upload to S3, please try again");
+      }
+    } catch (error) {
+      alert(JSON.stringify(error));
+      return new Error(error?.message || "Something went wrong uploading to S3, please try again");
+    } finally {
+      setIsUploading(false);
+    }
   }, []);
 
   const handleCompress = React.useCallback(async (event) => {
@@ -24,21 +47,23 @@ export default function ImageCompressor () {
         maxWidthOrHeight: 500,
         useWebWorker: true
       };
-      const imageSizeMB = state.originalImage.size / (1024 * 1024);
+      const imageSizeMB = originalImage.size / (1024 * 1024);
       if (options.maxSizeMB >= imageSizeMB) {
         throw new Error("Image is too small, can't be compressed!");
       }
-      const output = await imageCompression(state.originalImage, options);
-      setState((prevState) => ({
-        ...prevState,
-        compressedLink: URL.createObjectURL(output)
-      }));
+      const compressedImage = await imageCompression(originalImage, options);
+      setCompressedImage(compressedImage);
+      const error = await uploadToS3(compressedImage);
+      // Purposefully use verbose error checking for easier understanding of the logic
+      if (error) {
+        throw error;
+      }
       return 1;
     } catch (error) {
       alert(error?.message || "Something went wrong, please try again");
       return 0;
     }
-  }, [state.originalImage]);
+  }, [originalImage]);
   return (
     <div className="m-5">
       <div className="text-light text-center">
@@ -53,7 +78,7 @@ export default function ImageCompressor () {
           <Card.Img
             className="ht"
             variant="top"
-            src={state.originalImage ? URL.createObjectURL(state.originalImage) : "http://navparivartan.in/wp-content/uploads/2018/11/placeholder.png"}
+            src={getImageUrlWithFallback(originalImage, PLACEHOLDER_IMAGE_URL)}
           />
           <div className="d-flex justify-content-center">
             <input type="file" accept="image/*" onChange={handleFileChange} className="mt-2 btn btn-dark w-75" />
@@ -61,7 +86,7 @@ export default function ImageCompressor () {
         </div>
         <div className="col-xl-4 col-lg-4 col-md-12 mb-5 mt-5 col-sm-12 d-flex justify-content-center align-items-baseline">
           <br />
-          {state.originalImage && (
+          {originalImage && (
             <button type="button" className="btn btn-dark" onClick={handleCompress}>
               Compress
             </button>
@@ -69,14 +94,20 @@ export default function ImageCompressor () {
         </div>
 
         <div className="col-xl-4 col-lg-4 col-md-12 col-sm-12 mt-3">
-          <Card.Img variant="top" src={state.compressedLink} />
-          {state.compressedLink && (
-            <div className="d-flex justify-content-center">
-              <a href={state.compressedLink} download={state.compressedLink} className="mt-2 btn btn-dark w-75">
+          <Card.Img variant="top" src={getImageUrlWithFallback(compressedImage, PLACEHOLDER_IMAGE_URL)} />
+          <div className="d-flex justify-content-center">
+            {compressedImage && !isUploading && (
+              <a href={URL.createObjectURL(compressedImage)} download={URL.createObjectURL(compressedImage)} className="mt-2 btn btn-dark w-75">
                 Download
               </a>
-            </div>
-          )}
+            )}
+            {isUploading && (
+              <div className="mt-2 btn p-4 justify-content-center">
+                <Spinner animation="grow" />
+                <span>Uploading...</span>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
